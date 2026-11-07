@@ -15,7 +15,7 @@ const MOODS=[1,2,3,4,5].map(n=>Icons.svg('f'+n,26,1.6));
 
 let S;
 try{S=JSON.parse(localStorage.getItem(KEY))||{}}catch(e){S={}}
-S.shopping=S.shopping||[];S.meals=S.meals||{};S.events=S.events||[];S.tasks=S.tasks||[];S.budgets=S.budgets||{};S.extraTx=S.extraTx||[];S.users=S.users||{};if(!S.themeV3){S.theme='dark';S.themeV3=1}S.theme=S.theme||'dark';S.rules=S.rules||{};S.dateFix=S.dateFix||{};
+S.shopping=S.shopping||[];S.meals=S.meals||{};S.events=S.events||[];S.tasks=S.tasks||[];S.budgets=S.budgets||{};S.extraTx=S.extraTx||[];S.users=S.users||{};if(!S.themeV3){S.theme='dark';S.themeV3=1}S.theme=S.theme||'dark';S.rules=S.rules||{};S.dateFix=S.dateFix||{};S.hide=S.hide||{};
 USERS.forEach(u=>{S.users[u.email]=S.users[u.email]||{journal:[],habits:[],log:{}}});
 const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}};
 const me=()=>USERS.find(u=>u.email===S.session);
@@ -24,7 +24,7 @@ const mine=()=>S.users[S.session];
 /* ---------- data helpers ---------- */
 const txKey=t=>t.d0+'|'+t.t+'|'+t.a;
 const fixD=t=>{const k=(t.d0||t.d)+'|'+t.t+'|'+t.a,f=S.dateFix[k];if(!f||f===t.d)return t;return Object.assign({},t,{d:f,d0:t.d0||t.d})};
-const allTx=()=>window.BANK_TX.concat(S.extraTx).map(fixD);
+const allTx=()=>window.BANK_TX.concat(S.extraTx).filter(t=>!(t.p&&S.hide[t.d+'|'+t.t+'|'+t.a])).map(fixD);
 const isIncome=t=>t.a>0&&['Paychecks','Other Income','Deposits'].includes(t.c)&&!/HVAC DIRECT/.test(t.t)&&cat(t)!=='Transfers';
 const isSpend=t=>(t.a<0||(t.a>0&&!isIncome(t)))&&cat(t)!=='Transfers'; // refunds net against spending
 const months=()=>[...new Set(allTx().map(t=>t.d.slice(0,7)))].sort().reverse();
@@ -285,14 +285,29 @@ function forecastCards(){
 }
 
 function importCsv(text){
-  const have=new Set(allTx().map(t=>t.d+t.t+t.a));let n=0;
+  const rows=[];
   text.split(/\r?\n/).slice(1).filter(Boolean).forEach(r=>{
     const f=[...r.matchAll(/"((?:[^"]|"")*)"|([^,]+)/g)].map(m=>m[1]??m[2]);if(f.length<3)return;
     const dm=f[0].match(/(\d+)\/(\d+)\/(\d{4})/);const d=dm?`${dm[3]}-${dm[1].padStart(2,'0')}-${dm[2].padStart(2,'0')}`:f[0].slice(0,10);
     const a=parseFloat(f[2].replace(/[\s$,]/g,''));if(isNaN(a))return;
     const t=f[1].replace(/\s+/g,' ').replace(/\s*(CARD|DEBIT CARD|POS PURCHASE|RECURRING D).*$/,'').slice(0,42);
-    if(have.has(d+t+a))return;S.extraTx.push({d,t,a,c:f[3]&&f[3]!=='PENDING'?f[3]:'Uncategorized',p:/PENDING/.test(f[0])?1:0});n++;
-  });billsCache=null;save();alert(n+' new transactions imported.');render();
+    rows.push({d,t,a,c:f[3]&&f[3]!=='PENDING'?f[3]:'Uncategorized',p:/PENDING/.test(f[0])?1:0});
+  });
+  const fw=t=>t.split(' ')[0].toUpperCase(),dd=(x,y)=>(new Date(y)-new Date(x))/864e5;
+  const oldPend=allTx().filter(t=>t.p),newPend=rows.filter(r=>r.p),posted=rows.filter(r=>!r.p);
+  const have=new Set(allTx().map(t=>(t.pd||t.d)+t.t+t.a));
+  const pool=oldPend.concat(newPend.filter(r=>!oldPend.some(o=>o.d===r.d&&o.t===r.t&&o.a===r.a)));
+  const taken=new Set();let n=0,fixed=0;
+  posted.forEach(r=>{
+    if(have.has(r.d+r.t+r.a))return;
+    const m=pool.find(p=>!taken.has(p)&&p.a===r.a&&fw(p.t)===fw(r.t)&&p.d<=r.d&&dd(p.d,r.d)<=14);
+    if(m){taken.add(m);S.hide[m.d+'|'+m.t+'|'+m.a]=1;S.extraTx.push(Object.assign({},r,{d:m.d,pd:r.d}));fixed++}else S.extraTx.push(r);
+    n++;
+  });
+  // pending items that vanished from the new file (cancelled or posted another way) are dropped
+  oldPend.forEach(o=>{if(!taken.has(o)&&!newPend.some(r=>r.d===o.d&&r.t===o.t&&r.a===o.a)&&rows.length)S.hide[o.d+'|'+o.t+'|'+o.a]=1});
+  newPend.forEach(r=>{if(!allTx().some(t=>t.p&&t.d===r.d&&t.t===r.t&&t.a===r.a)&&!S.hide[r.d+'|'+r.t+'|'+r.a]){S.extraTx.push(r);n++}});
+  billsCache=null;save();alert(n+' new transactions imported'+(fixed?', '+fixed+' dated to the day you actually bought them':'')+'.');render();
 }
 
 /* ---------- GROCERIES ---------- */
