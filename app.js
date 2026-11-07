@@ -120,11 +120,11 @@ function home(){
     <div><div class="eyebrow">Spent</div><div class="num-xl" data-count="${sp}">${money(sp)}</div>${deltaTxt(sp,p.spent,'down')}</div>
     <div><div class="eyebrow">${left>=0?'Left over':'Over by'}</div><div class="num-xl ${left>=0?'good':'bad'}" data-count="${Math.abs(left)}">${money(Math.abs(left))}</div><span class="mute">${inc?pct(Math.abs(left),inc)+'% of income':''}</span></div></div>
    ${inc?`<div class="meter" title="${money(sp)} of ${money(inc)}"><i style="width:${Math.min(100,sp/inc*100)}%"></i></div>`:''}
-   <p class="story">${s.cats.length?`${isPartial(m)?'So far this month':'In '+monthName(m).split(' ')[0]}, most of the money went to <b>${esc(top[0])}</b> (${money(top[1].v)}). ${need?`<a class="lnk" data-go="spending">${need} purchase${need>1?'s':''} still need a label.</a>`:''}`:'Nothing recorded yet.'}</p></section>
+   <p class="story">${s.cats.length?`${isPartial(m)?'So far this month':'In '+monthName(m).split(' ')[0]}, most of the money went to <b>${esc(top[0])}</b> (${money(top[1].v)}). ${need?`<a class="lnk" data-go="money">${need} purchase${need>1?'s':''} still need a label.</a>`:''}`:'Nothing recorded yet.'}</p></section>
   <div class="grid g2">
    <section class="card"><h2>Where it went</h2>
     <div class="split">${C.donut(gs.map(([n,x])=>({label:n,v:x.v,color:Icons.GCOL[n]||'#94a3b8'})),{center:money(sp),sub:'spent'})}
-    <div class="grows">${gs.map(([n,x])=>`<button class="grow" data-gotab="spending" data-open="${esc(n)}">${gTile(n,30)}<span class="gn">${esc(n)}</span><b>${money(x.v)}</b><em>${pct(x.v,sp)}%</em></button>`).join('')}</div></div></section>
+    <div class="grows">${gs.map(([n,x])=>`<button class="grow" data-gotab="money" data-open="${esc(n)}">${gTile(n,30)}<span class="gn">${esc(n)}</span><b>${money(x.v)}</b><em>${pct(x.v,sp)}%</em></button>`).join('')}</div></div></section>
    <section class="card"><h2>Bills vs. everyday</h2>
     <div class="stackbar">${kinds.map(([k,l,c])=>kv(k)?`<i style="flex:${kv(k)};background:${c}" title="${l}: ${money(kv(k))}"></i>`:'').join('')}</div>
     <div class="klist">${kinds.map(([k,l,c])=>`<div><i style="background:${c}"></i><span>${l}</span><b>${money(kv(k))}</b><em>${pct(kv(k),sp)}%</em></div>`).join('')}</div>
@@ -142,37 +142,60 @@ function home(){
 function allCatNames(){return [...new Set(allTx().map(cat).concat(Object.values(S.rules),Object.keys(window.CAT_GROUP_OF).concat(['Transfers'])))].filter(c=>c!=='Paycheck').sort()}
 function recatKey(k,cur){return `<select class="recat" data-m="${esc(k)}">${allCatNames().map(c=>`<option ${c===cur?'selected':''}>${esc(c)}</option>`).join('')}</select>`}
 function recatSel(t){const k=merchant(t.t),cur=cat(t);return `<select class="recat" data-m="${esc(k)}" title="Change the category for every ${esc(k)} purchase">${allCatNames().map(c=>`<option ${c===cur?'selected':''}>${esc(c)}</option>`).join('')}</select>`}
-function spending(){
-  const s=monthStats(month),tx=s.tx,dm=dailyMap(tx),pm=prevMonth(month),p=monthStats(pm),ms=months();
-  const gs=groupStats(tx),meta=GMETA();
-  const prevC=Object.fromEntries(p.cats);
+
+let mview='month',mwk=mondayOf(new Date()),myear=String(new Date().getFullYear());
+const dstr=d=>iso(d);
+function periodTx(){
+  if(mview==='week'){const a=dstr(mwk),e=new Date(mwk);e.setDate(e.getDate()+6);const z=dstr(e);return allTx().filter(t=>t.d>=a&&t.d<=z)}
+  if(mview==='year')return allTx().filter(t=>t.d.startsWith(myear));
+  return txOf(month);
+}
+function statsOf(tx){const inc=sum(tx.filter(isIncome).map(t=>t.a)),sp=tx.filter(isSpend),spent=-sum(sp.map(t=>t.a));return {tx,inc,spent,cats:byCat(tx),n:sp.length}}
+function periodBar(){
+  const lab=mview==='week'?(()=>{const e=new Date(mwk);e.setDate(e.getDate()+6);const f=d=>d.toLocaleDateString(undefined,{month:'short',day:'numeric'});return f(mwk)+' – '+f(e)})():mview==='year'?myear:monthName(month);
+  return `<div class="seg3">${[['week','Week'],['month','Month'],['year','Year']].map(([k,l])=>`<button data-mview="${k}" class="${k===mview?'on':''}">${l}</button>`).join('')}</div>
+  <div class="monthbar"><button class="btn alt" data-mp="-1">${Icons.svg('chev',16).replace('<svg ','<svg style="transform:rotate(90deg)" ')}</button><h2>${lab}</h2><button class="btn alt" data-mp="1">${Icons.svg('chev',16).replace('<svg ','<svg style="transform:rotate(-90deg)" ')}</button></div>`;
+}
+function money_(){
+  const tx=periodTx(),s=statsOf(tx),meta=GMETA(),gs=groupStats(tx);
+  const kv=k=>sum(gs.filter(([n])=>meta[n]&&meta[n][3]===k).map(([,x])=>x.v)),bills=kv('fixed'),other=s.spent-bills,left=s.inc-s.spent;
   const need=tx.filter(t=>isSpend(t)&&['Needs a label','Other','Checks'].includes(cat(t)));
-  const reg=billsDetect().slice(0,10),regTotal=sum(reg.map(r=>r.med));
-  const list=tx.filter(t=>(!txf.cat||cat(t)===txf.cat)&&(!txf.q||t.t.toLowerCase().includes(txf.q.toLowerCase()))).sort((a,b)=>b.d.localeCompare(a.d)).slice(0,150);
+  const incList=(()=>{const o={};tx.filter(isIncome).forEach(t=>o[merchant(t.t)]=(o[merchant(t.t)]||0)+t.a);return Object.entries(o).sort((a,b)=>b[1]-a[1])})();
   const row=t=>`<tr><td class="dt">${t.d.slice(5)}</td><td>${esc(t.t)}${t.p?' <span class="mute">· pending</span>':''}</td><td class="num"><b>${money2(-t.a)}</b></td></tr>`;
   const catBlock=([c,v])=>{const k='c:'+c,items=tx.filter(t=>isSpend(t)&&cat(t)===c).sort((a,b)=>a.a-b.a);
     return `<details class="crow" data-k="${esc(k)}" ${openSet.has(k)?'open':''}><summary>${cTile(c,28)}<span class="cn">${esc(c)}</span><span class="cv">${money(v)}</span>${Icons.svg('chev',16)}</summary>
-     <div class="cbody"><div class="mute" style="margin-bottom:6px">${items.length} purchase${items.length>1?'s':''}${prevC[c]?` · last month ${money(prevC[c])}`:''}</div><table>${items.map(t=>row(t).replace('</tr>',`<td>${recatSel(t)}</td></tr>`)).join('')}</table></div></details>`};
+     <div class="cbody"><div class="mute" style="margin-bottom:6px">${items.length} purchase${items.length>1?'s':''}</div><table>${items.map(t=>row(t).replace('</tr>',`<td>${recatSel(t)}</td></tr>`)).join('')}</table></div></details>`};
   const groupBlock=([n,x])=>{const k='g:'+n,col=Icons.GCOL[n]||'#94a3b8';
-    return `<details class="gcard card" data-k="${esc(k)}" style="--c:${col}" ${openSet.has(k)||openSet.has('open:'+n)?'open':''}><summary>${gTile(n,44)}<div class="gt"><b>${esc(n)}</b><div class="meter sm"><i style="width:${pct(x.v,gs[0][1].v)}%;background:${col}"></i></div></div><div class="gv"><b>${money(x.v)}</b><em>${pct(x.v,s.spent)}%</em></div>${Icons.svg('chev',18)}</summary>
-     <div class="gbody">${x.cats.map(catBlock).join('')}</div></details>`};
-  const top6=byCat(allTx()).slice(0,6).map(c=>c[0]);
-  const stackCols=ms.slice(0,6).reverse().map(x=>{const mp=Object.fromEntries(monthStats(x).cats);return {label:monthName(x).slice(0,3),parts:top6.map(c=>({label:c,v:mp[c]||0,color:C.color(c)})).concat([{label:'Everything else',v:Math.max(0,sum(Object.entries(mp).filter(([k])=>!top6.includes(k)).map(e=>e[1]))),color:'#94a3b8'}])}});
-  return `${monthBar()}
-  <section class="card glance"><div class="three"><div><div class="eyebrow">Came in</div><div class="num-xl good">${money(s.inc)}</div></div><div><div class="eyebrow">Spent</div><div class="num-xl">${money(s.spent)}</div>${deltaTxt(s.spent,p.spent,'down')}</div><div><div class="eyebrow">${s.n} purchases</div><div class="num-xl">${money(s.spent/Math.max(1,isPartial(month)?new Date().getDate():new Date(+month.slice(0,4),+month.slice(5),0).getDate()))}</div><span class="mute">a day</span></div></div>
-   <div class="row" style="margin:16px 0 0"><label class="btn alt sm">${Icons.svg('upload',15)} Import PNC CSV<input id="imp" type="file" accept=".csv" hidden></label></div></section>
+    return `<details class="gcard card" data-k="${esc(k)}" style="--c:${col}" ${openSet.has(k)?'open':''}><summary>${gTile(n,44)}<div class="gt"><b>${esc(n)}</b><div class="meter sm"><i style="width:${pct(x.v,gs[0][1].v)}%;background:${col}"></i></div></div><div class="gv"><b>${money(x.v)}</b><em>${pct(x.v,s.spent)}%</em></div>${Icons.svg('chev',18)}</summary><div class="gbody">${x.cats.map(catBlock).join('')}</div></details>`};
+  // period chart
+  let chart='',chartT='';
+  if(mview==='week'){chartT='Day by day';const dm=dailyMap(tx);chart=C.bars(Array.from({length:7},(_,i)=>{const d=new Date(mwk);d.setDate(d.getDate()+i);return {label:d.toLocaleDateString(undefined,{weekday:'short'}),v:dm[dstr(d)]||0,color:Icons.GCOL['Home & Bills']}}))}
+  else if(mview==='month'){chartT='Week by week';const dm=dailyMap(tx),first=new Date(month+'-01T12:00'),last=new Date(+month.slice(0,4),+month.slice(5),0),ws=[];let w=mondayOf(first);while(w<=last){let t0=0;for(let i=0;i<7;i++){const d=new Date(w);d.setDate(d.getDate()+i);if(dstr(d).startsWith(month))t0+=dm[dstr(d)]||0}ws.push({label:w.toLocaleDateString(undefined,{month:'short',day:'numeric'}),v:t0,color:'#4f46e5'});w=new Date(w);w.setDate(w.getDate()+7)}chart=C.bars(ws)}
+  else{chartT='Month by month';const ms=[...new Set(tx.map(t=>t.d.slice(0,7)))].sort();chart=C.bars(ms.map(x=>{const st=statsOf(tx.filter(t=>t.d.startsWith(x)));return {label:monthName(x).slice(0,3),v:st.spent,v2:st.inc,color:'#f43f5e',color2:'#10b981'}}))}
+  // year outlook
+  let yearCard='';
+  if(mview==='year'){const cur=iso(new Date()).slice(0,7),ms=[...new Set(tx.map(t=>t.d.slice(0,7)))].sort().filter(x=>x!==cur&&x!==ms0()),use=ms.length?ms:[...new Set(tx.map(t=>t.d.slice(0,7)))],avgS=sum(use.map(x=>statsOf(tx.filter(t=>t.d.startsWith(x))).spent))/use.length,avgI=sum(use.map(x=>statsOf(tx.filter(t=>t.d.startsWith(x))).inc))/use.length,bm=sum(billsDetect().map(b=>b.mo||b.med));
+    yearCard=`<section class="card"><h2>${I('calendar')} The year at this pace</h2><div class="three"><div><div class="eyebrow">Income / yr</div><div class="num-xl good">${money(avgI*12)}</div></div><div><div class="eyebrow">Spending / yr</div><div class="num-xl">${money(avgS*12)}</div></div><div><div class="eyebrow">Regular bills / yr</div><div class="num-xl">${money(bm*12)}</div></div></div><p class="mute" style="margin-top:12px">Based on ${use.length} full month${use.length>1?'s':''} of data (averages: ${money(avgI)} in, ${money(avgS)} out per month). More history makes this sharper.</p></section>`}
+  return `${periodBar()}
+  <section class="card glance"><div class="three">
+   <div><div class="eyebrow">Income</div><div class="num-xl good">${money(s.inc)}</div></div>
+   <div><div class="eyebrow">Bills</div><div class="num-xl">${money(bills)}</div><span class="mute">${pct(bills,s.spent)}% of spending</span></div>
+   <div><div class="eyebrow">Everything else</div><div class="num-xl">${money(other)}</div><span class="mute">${s.n} purchases</span></div></div>
+   ${s.inc?`<div class="stackbar" style="margin-top:18px;height:14px"><i style="flex:${bills};background:#4f46e5" title="Bills"></i><i style="flex:${Math.max(0,other)};background:#10b981" title="Everything else"></i><i style="flex:${Math.max(0,left)};background:var(--track)" title="Left"></i></div>`:''}
+   <p class="story">${left>=0?`Kept <b>${money(left)}</b>`:`Over by <b>${money(-left)}</b>`}${s.inc?` (${pct(Math.abs(left),s.inc)}% of income)`:''}. ${incList.length?'':'No income in this period.'}</p></section>
+  <div class="grid g2"><section class="card"><h2>${chartT}</h2>${chart}</section>
+   <section class="card"><h2>${I('down')} Income <span class="mute">${money(s.inc)}</span></h2>${incList.length?incList.map(([k,v])=>`<div class="due"><span class="dn-n">${esc(k)}</span><b class="good">${money2(v)}</b></div>`).join(''):'<p class="mute">Nothing came in.</p>'}</section></div>
+  ${yearCard}
   <h2 class="sec">Where it went <span class="mute">tap a group to open it</span></h2>
-  ${gs.map(groupBlock).join('')}
-  ${need.length?`<section class="card"><h2>${Icons.svg('tag',18)} Help me label these <span class="mute">${need.length}</span></h2><p class="mute" style="margin:-6px 0 10px">Pick a category once and every purchase from that place is sorted from now on.</p><div class="scroll"><table>${need.slice(0,25).map(t=>`<tr><td>${esc(t.t)}<div class="mute">${t.d.slice(5)} · ${money2(-t.a)}</div></td><td>${recatSel(t)}</td></tr>`).join('')}</table></div></section>`:''}
-  <details class="card fold" data-k="more" ${openSet.has('more')?'open':''}><summary><h2>${Icons.svg('chart',18)} Trends &amp; charts</h2>${Icons.svg('chev',18)}</summary>
-   <div class="grid g2" style="margin-top:14px"><div><h3 class="sub-h">Month by month</h3>${C.stacked(stackCols)}${C.legend(top6.map(c=>({label:c,v:sum(ms.map(x=>(Object.fromEntries(monthStats(x).cats))[c]||0)),color:C.color(c)})))}</div>
-   <div><h3 class="sub-h">Spending calendar</h3>${C.heatmap(month,dm)}</div></div></details>
-  <details class="card fold" data-k="reg" ${openSet.has('reg')?'open':''}><summary><h2>${Icons.svg('repeat',18)} Regular bills &amp; subscriptions <span class="mute">≈ ${money(regTotal)}/mo</span></h2>${Icons.svg('chev',18)}</summary>
-   ${reg.map(r=>`<div class="due"><span class="dn-n"><b>${esc(r.k)}</b> <span class="mute">${esc(r.cat)}</span></span><span class="mute">${r.n}×</span><b>${money2(r.med)}</b></div>`).join('')}</details>
-  <details class="card fold" data-k="lim" ${openSet.has('lim')?'open':''}><summary><h2>${Icons.svg('shield',18)} Monthly limits</h2>${Icons.svg('chev',18)}</summary><table>${s.cats.map(([c,v])=>{const l=S.budgets[c]||0;return `<tr><td>${cTile(c,24)} ${esc(c)}</td><td class="num">${money(v)}</td><td><input class="lim" data-c="${esc(c)}" type="number" min="0" style="width:84px" value="${l||''}" placeholder="limit"></td><td style="width:28%">${l?`<div class="bar ${v>l?'over':''}"><i style="width:${Math.min(100,v/l*100)}%"></i></div>`:''}</td></tr>`}).join('')}</table></details>
-  <details class="card fold" data-k="all" ${openSet.has('all')?'open':''}><summary><h2>${Icons.svg('list',18)} Every transaction</h2>${Icons.svg('chev',18)}</summary><div class="row"><input id="tq" placeholder="Search…" value="${esc(txf.q)}"><select id="tc"><option value="">All categories</option>${allCatNames().map(c=>`<option ${c===txf.cat?'selected':''}>${esc(c)}</option>`).join('')}</select></div>
-   <table>${list.map(t=>`<tr><td class="dt">${t.d.slice(5)}</td><td>${esc(t.t)}${t.p?' <span class="mute">· pending</span>':''}</td><td>${t.a<0?recatSel(t):'<span class="chip" style="background:#10b981">Income</span>'}</td><td class="num ${t.a<0?'':'good'}"><b>${money2(t.a)}</b></td></tr>`).join('')}</table></details>`;
+  ${gs.length?gs.map(groupBlock).join(''):'<p class="mute">No spending in this period.</p>'}
+  ${need.length?`<section class="card"><h2>${I('tag')} Help me label these <span class="mute">${need.length}</span></h2><p class="mute" style="margin:-6px 0 10px">Pick a category once and every purchase from that place is sorted from now on.</p><div class="scroll"><table>${need.slice(0,25).map(t=>`<tr><td>${esc(t.t)}<div class="mute">${t.d.slice(5)} · ${money2(-t.a)}</div></td><td>${recatSel(t)}</td></tr>`).join('')}</table></div></section>`:''}
+  <h2 class="sec">Coming up <span class="mute">bills due &amp; what to expect</span></h2>
+  ${forecastCards()}
+  <details class="card fold" data-k="lim" ${openSet.has('lim')?'open':''}><summary><h2>${I('shield')} Monthly limits</h2>${Icons.svg('chev',18)}</summary><table>${monthStats(month).cats.map(([c,v])=>{const l=S.budgets[c]||0;return `<tr><td>${cTile(c,24)} ${esc(c)}</td><td class="num">${money(v)}</td><td><input class="lim" data-c="${esc(c)}" type="number" min="0" style="width:84px" value="${l||''}" placeholder="limit"></td><td style="width:28%">${l?`<div class="bar ${v>l?'over':''}"><i style="width:${Math.min(100,v/l*100)}%"></i></div>`:''}</td></tr>`}).join('')}</table></details>
+  <details class="card fold" data-k="all" ${openSet.has('all')?'open':''}><summary><h2>${I('list')} Every transaction</h2>${Icons.svg('chev',18)}</summary><div class="row"><input id="tq" placeholder="Search…" value="${esc(txf.q)}"><select id="tc"><option value="">All categories</option>${allCatNames().map(c=>`<option ${c===txf.cat?'selected':''}>${esc(c)}</option>`).join('')}</select><label class="btn alt sm">${I('upload',15)} Import PNC CSV<input id="imp" type="file" accept=".csv" hidden></label></div>
+   <table>${tx.filter(t=>(!txf.cat||cat(t)===txf.cat)&&(!txf.q||t.t.toLowerCase().includes(txf.q.toLowerCase()))).sort((a,b)=>b.d.localeCompare(a.d)).slice(0,150).map(t=>`<tr><td class="dt">${t.d.slice(5)}</td><td>${esc(t.t)}${t.p?' <span class="mute">· pending</span>':''}</td><td>${t.a<0?recatSel(t):'<span class="chip" style="background:#10b981">Income</span>'}</td><td class="num ${t.a<0?'':'good'}"><b>${money2(t.a)}</b></td></tr>`).join('')}</table></details>`;
 }
+const ms0=()=>months()[months().length-1];
 
 /* ---------- BILLS DETECTION + FORECAST ---------- */
 let billsCache=null;
@@ -236,19 +259,13 @@ function paceThisMonth(){
 }
 
 /* ---------- FORECAST TAB ---------- */
-function forecastTab(){
+function forecastCards(){
   const cov=coverage(),bills=billsDetect(),f=forecast(3),pace=paceThisMonth(),today=iso(new Date());
   const upcoming=bills.map(b=>{let n=b.next;const dt=new Date(n);while(n<today){dt.setMonth(dt.getMonth()+(b.every||1));n=iso(dt)}return {...b,due:n,inDays:Math.round((new Date(n)-new Date(today))/864e5)}}).sort((a,b)=>a.due.localeCompare(b.due));
   const next30=upcoming.filter(b=>b.inDays<=30);
   const hasUtil=bills.some(b=>/ELECTR|POWER|EDISON|WATER|GAS CO|MORTG|RENT|UTIL/i.test(b.k));
   const maxP=Math.max(1,pace.proj,pace.income);
-  return `<div class="hero"><div><h1>Bills & Forecast</h1><p>What goes out every month, what's due next, and what to expect in the coming months.</p></div></div>
-  <div class="grid g4" style="margin-bottom:18px">
-   <div class="kpi k3"><small>Regular bills</small><div class="v">${money(f.billsMo)}</div><div class="d">${bills.length} found · per month</div></div>
-   <div class="kpi k2"><small>Due in next 30 days</small><div class="v">${money(sum(next30.map(b=>b.med)))}</div><div class="d">${next30.length} bills</div></div>
-   <div class="kpi k1"><small>${monthName(pace.m).split(' ')[0]} on pace for</small><div class="v">${money(pace.proj)}</div><div class="d">${money(pace.spent)} spent so far</div></div>
-   <div class="kpi k4"><small>History I have</small><div class="v">${Math.round(cov.days/30.4*10)/10} mo</div><div class="d">${cov.from} → ${cov.to}</div></div></div>
-  <div class="grid g2">
+  return `<div class="grid g2">
    <div class="card"><h2>${I("calendar")} Coming due <span class="mute">next 30 days</span></h2>${next30.length?next30.map(b=>`<div class="hb"><span class="chip" style="background:${b.inDays<=3?'#f43f5e':b.inDays<=10?'#f59e0b':'#6366f1'};min-width:62px;text-align:center">${b.inDays===0?'today':b.inDays===1?'tomorrow':b.inDays+' days'}</span><span style="flex:1"><b>${esc(b.k)}</b><br><span class="mute">${b.due.slice(5)} · ${esc(b.cat)}</span></span><b>${money2(b.med)}</b></div>`).join(''):'<p class="mute">Nothing detected yet.</p>'}</div>
    <div class="card"><h2>${I("receipt")} Regular bills <span class="mute">≈ ${money(f.billsMo)}/mo</span></h2><table>${bills.map(b=>`<tr><td><b>${esc(b.k)}</b><div class="mute">${b.every>1?"about every "+b.every+" months":"~day "+b.day+" of the month"}</div></td><td>${recatKey(b.k,b.cat)}</td><td class="num"><b>${money2(b.med)}</b></td></tr>`).join('')||'<tr><td class="mute">None found yet.</td></tr>'}</table>
     ${hasUtil?'':'<div class="callout mute" style="margin-top:10px">I don\'t see a house payment, electric or water bill by name yet. The $1,122.08 "Online Payment" each month looks like it could be your house payment — set it to Housing in the menu above. Electric may be paid from another account or by check.</div>'}</div>
@@ -260,7 +277,7 @@ function forecastTab(){
     <div class="hb"><span class="hb-l">Income so far</span><div class="hb-t"><div class="hb-f" style="width:${pace.income/maxP*100}%;background:#10b981"></div></div><b>${money(pace.income)}</b></div>
     <p class="mute">${pace.left} days left · ${money(pace.billsToCome)} of regular bills still to come.</p></div>
    <div class="card"><h2>${I("search")} How far back does my data go?</h2><p class="story">Your bank export covers <b>${cov.from}</b> to <b>${cov.to}</b> — about <b>${Math.round(cov.days/30.4*10)/10} months</b> and <b>${cov.n}</b> transactions. Your Instacart groceries go back to <b>January 2022</b>.</p>
-    <p class="mute">To go further back, download older activity from PNC online banking (pick an earlier date range and export CSV), then use <b>Import PNC CSV</b> on the Spending tab. You can import as many files as you like — duplicates are skipped automatically, and every chart and forecast here gets smarter with each year added.</p></div></div>`;
+    <p class="mute">To go further back, download older activity from PNC online banking (pick an earlier date range and export CSV), then use <b>Import PNC CSV</b> under Every transaction on the Money tab. You can import as many files as you like — duplicates are skipped automatically, and every chart and forecast here gets smarter with each year added.</p></div></div>`;
 }
 
 function importCsv(text){
@@ -400,8 +417,8 @@ function calendarOld(){
 }
 
 /* ---------- shell ---------- */
-const TABS=[['home','Home','home'],['spending','Spending','wallet'],['forecast','Bills & Forecast','receipt'],['groceries','Groceries','cart'],['meals','Meal Plan','utensils'],['calendar','Calendar','calendar'],['journal','Journal','pen'],['habits','Habits & To-Do','check']];
-const views={home,spending,forecast:forecastTab,groceries,meals,calendar,journal,habits};
+const TABS=[['home','Home','home'],['money','Money','wallet'],['groceries','Groceries','cart'],['meals','Meal Plan','utensils'],['calendar','Calendar','calendar'],['journal','Journal','pen'],['habits','Habits & To-Do','check']];
+const views={home,money:money_,groceries,meals,calendar,journal,habits};
 function render(){
   billsCache=null;
   document.documentElement.dataset.theme='dark';
@@ -435,6 +452,8 @@ document.addEventListener('click',e=>{
   if(id==='av'){const m=$('#menu');m.hidden=!m.hidden;return}
   if(id==='signout'||id==='switch'){S.session=null;save();return render()}
   if(id==='theme'){S.theme=S.theme==='dark'?'light':'dark';save();return render()}
+  if(ds.mview){mview=ds.mview;return render()}
+  if(ds.mp){const d=+ds.mp;if(mview==='week'){mwk=new Date(mwk);mwk.setDate(mwk.getDate()+7*d)}else if(mview==='year'){myear=String(+myear+d)}else{const ms=months(),i=ms.indexOf(month)-d;if(ms[i])month=ms[i]}return render()}
   if(ds.mo){const ms=months(),i=ms.indexOf(month)-(+ds.mo);if(ms[i]){month=ms[i];render()}return}
   if(t.closest('[data-cat]')&&t.closest('[data-cat]').dataset.cat!==undefined){const c=t.closest('[data-cat]').dataset.cat;selCat=(selCat===c?'':c);render();return}
   if(ds.gotab){tab=ds.gotab;openSet.add('g:'+ds.open);render();return window.scrollTo(0,0)}
