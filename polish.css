@@ -144,3 +144,4 @@ td b{white-space:nowrap}
 .seg3 button{border:0;background:none;color:var(--mute);font:600 13.5px Inter,sans-serif;padding:8px 22px;border-radius:10px;cursor:pointer;transition:.2s}
 .seg3 button.on{background:var(--card);color:var(--ink);box-shadow:0 2px 8px rgba(0,0,0,.2)}
 .grid{margin-bottom:18px}.grid.g4{margin-bottom:18px}
+input.dfix{padding:3px 6px;font-size:12px;border-radius:8px;width:128px;color-scheme:dark}.dt:has(.dfix){width:140px}

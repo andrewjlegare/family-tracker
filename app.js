@@ -15,14 +15,16 @@ const MOODS=[1,2,3,4,5].map(n=>Icons.svg('f'+n,26,1.6));
 
 let S;
 try{S=JSON.parse(localStorage.getItem(KEY))||{}}catch(e){S={}}
-S.shopping=S.shopping||[];S.meals=S.meals||{};S.events=S.events||[];S.tasks=S.tasks||[];S.budgets=S.budgets||{};S.extraTx=S.extraTx||[];S.users=S.users||{};if(!S.themeV3){S.theme='dark';S.themeV3=1}S.theme=S.theme||'dark';S.rules=S.rules||{};
+S.shopping=S.shopping||[];S.meals=S.meals||{};S.events=S.events||[];S.tasks=S.tasks||[];S.budgets=S.budgets||{};S.extraTx=S.extraTx||[];S.users=S.users||{};if(!S.themeV3){S.theme='dark';S.themeV3=1}S.theme=S.theme||'dark';S.rules=S.rules||{};S.dateFix=S.dateFix||{};
 USERS.forEach(u=>{S.users[u.email]=S.users[u.email]||{journal:[],habits:[],log:{}}});
 const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}};
 const me=()=>USERS.find(u=>u.email===S.session);
 const mine=()=>S.users[S.session];
 
 /* ---------- data helpers ---------- */
-const allTx=()=>window.BANK_TX.concat(S.extraTx);
+const txKey=t=>t.d0+'|'+t.t+'|'+t.a;
+const fixD=t=>{const k=(t.d0||t.d)+'|'+t.t+'|'+t.a,f=S.dateFix[k];if(!f||f===t.d)return t;return Object.assign({},t,{d:f,d0:t.d0||t.d})};
+const allTx=()=>window.BANK_TX.concat(S.extraTx).map(fixD);
 const isIncome=t=>t.a>0&&['Paychecks','Other Income','Deposits'].includes(t.c)&&!/HVAC DIRECT/.test(t.t)&&cat(t)!=='Transfers';
 const isSpend=t=>(t.a<0||(t.a>0&&!isIncome(t)))&&cat(t)!=='Transfers'; // refunds net against spending
 const months=()=>[...new Set(allTx().map(t=>t.d.slice(0,7)))].sort().reverse();
@@ -164,7 +166,7 @@ function money_(){
   const row=t=>`<tr><td class="dt">${t.d.slice(5)}</td><td>${esc(t.t)}${t.p?' <span class="mute">· pending</span>':''}</td><td class="num"><b>${money2(-t.a)}</b></td></tr>`;
   const catBlock=([c,v])=>{const k='c:'+c,items=tx.filter(t=>isSpend(t)&&cat(t)===c).sort((a,b)=>a.a-b.a);
     return `<details class="crow" data-k="${esc(k)}" ${openSet.has(k)?'open':''}><summary>${cTile(c,28)}<span class="cn">${esc(c)}</span><span class="cv">${money(v)}</span>${Icons.svg('chev',16)}</summary>
-     <div class="cbody"><div class="mute" style="margin-bottom:6px">${items.length} purchase${items.length>1?'s':''}</div><table>${items.map(t=>row(t).replace('</tr>',`<td>${recatSel(t)}</td></tr>`)).join('')}</table></div></details>`};
+     <div class="cbody"><div class="mute" style="margin-bottom:6px">${items.length} purchase${items.length>1?'s':''} · change a date if the bank posted it late</div><table>${items.map(t=>row(t).replace(/<td class="dt">[^<]*<\/td>/,`<td class="dt"><input type="date" class="dfix" data-k="${esc((t.d0||t.d)+'|'+t.t+'|'+t.a)}" value="${t.d}"></td>`).replace('</tr>',`<td>${recatSel(t)}</td></tr>`)).join('')}</table></div></details>`};
   const groupBlock=([n,x])=>{const k='g:'+n,col=Icons.GCOL[n]||'#94a3b8';
     return `<details class="gcard card" data-k="${esc(k)}" style="--c:${col}" ${openSet.has(k)?'open':''}><summary>${gTile(n,44)}<div class="gt"><b>${esc(n)}</b><div class="meter sm"><i style="width:${pct(x.v,gs[0][1].v)}%;background:${col}"></i></div></div><div class="gv"><b>${money(x.v)}</b><em>${pct(x.v,s.spent)}%</em></div>${Icons.svg('chev',18)}</summary><div class="gbody">${x.cats.map(catBlock).join('')}</div></details>`};
   // period chart
@@ -176,7 +178,9 @@ function money_(){
   let yearCard='';
   if(mview==='year'){const cur=iso(new Date()).slice(0,7),ms=[...new Set(tx.map(t=>t.d.slice(0,7)))].sort().filter(x=>x!==cur&&x!==ms0()),use=ms.length?ms:[...new Set(tx.map(t=>t.d.slice(0,7)))],avgS=sum(use.map(x=>statsOf(tx.filter(t=>t.d.startsWith(x))).spent))/use.length,avgI=sum(use.map(x=>statsOf(tx.filter(t=>t.d.startsWith(x))).inc))/use.length,bm=sum(billsDetect().map(b=>b.mo||b.med));
     yearCard=`<section class="card"><h2>${I('calendar')} The year at this pace</h2><div class="three"><div><div class="eyebrow">Income / yr</div><div class="num-xl good">${money(avgI*12)}</div></div><div><div class="eyebrow">Spending / yr</div><div class="num-xl">${money(avgS*12)}</div></div><div><div class="eyebrow">Regular bills / yr</div><div class="num-xl">${money(bm*12)}</div></div></div><p class="mute" style="margin-top:12px">Based on ${use.length} full month${use.length>1?'s':''} of data (averages: ${money(avgI)} in, ${money(avgS)} out per month). More history makes this sharper.</p></section>`}
+  const todayK=iso(new Date()),recent=tx.some(t=>t.d>=iso(new Date(Date.now()-4*864e5)))&&tx.some(t=>t.d<=todayK&&t.d>=iso(new Date(Date.now()-4*864e5)));
   return `${periodBar()}
+  ${recent?`<p class="mute" style="text-align:center;margin:-4px 0 14px">${I('alert',14)} Banks post purchases a few days late, so the last few days may still shift. Open a category to fix a date.</p>`:''}
   <section class="card glance"><div class="three">
    <div><div class="eyebrow">Income</div><div class="num-xl good">${money(s.inc)}</div></div>
    <div><div class="eyebrow">Bills</div><div class="num-xl">${money(bills)}</div><span class="mute">${pct(bills,s.spent)}% of spending</span></div>
@@ -488,6 +492,7 @@ document.addEventListener('toggle',e=>{const d=e.target;if(d.tagName==='DETAILS'
 document.addEventListener('change',e=>{
   const t=e.target;
   if(t.id==='bm'){month=t.value;render()}
+  else if(t.classList.contains('dfix')){if(t.value){S.dateFix[t.dataset.k]=t.value;save();render()}}
   else if(t.classList.contains('recat')){S.rules[t.dataset.m]=t.value;save();render()}
   else if(t.id==='tc'){txf.cat=t.value;render()}
   else if(t.id==='gc'){gcat=t.value;render()}
