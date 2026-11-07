@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Family Tracker</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap">
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="polish.css">
+</head>
+<body>
+<div id="gate" style="min-height:100vh;display:grid;place-items:center;padding:20px"><form id="gf" class="login-box" style="max-width:380px"><div class="login-logo"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 11h12v9H6z"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></div><h1>Family Tracker</h1><p class="mute">Private. Enter the family key.</p><input id="gp" type="password" autocomplete="current-password" placeholder="Family key" style="width:100%;margin:14px 0 8px"><label class="mute" style="display:flex;gap:8px;align-items:center;justify-content:center"><input id="gr" type="checkbox" checked> Remember on this device</label><button class="btn" style="width:100%;margin-top:14px" id="gb">Unlock</button><div class="err" id="ge" style="color:#f87171;margin-top:10px;min-height:18px"></div></form></div>
+<div id="login" hidden></div>
+<header id="hdr" hidden>
+  <div class="logo"><span class="logo-mark"></span>Family Tracker</div>
+  <nav id="nav"></nav>
+  <div class="hr" id="hr"></div>
+</header>
+<main id="main"></main>
+<script>
+(async()=>{
+const $=s=>document.querySelector(s),KEY='familyApp.key',b=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+document.documentElement.dataset.theme='dark';
+let blob;try{blob=await (await fetch('data.enc',{cache:'no-cache'})).json()}catch(e){$('#ge').textContent='Could not load data.';return}
+async function open(pw){
+  const km=await crypto.subtle.importKey('raw',new TextEncoder().encode(pw),'PBKDF2',false,['deriveKey']);
+  const k=await crypto.subtle.deriveKey({name:'PBKDF2',salt:b(blob.s),iterations:blob.it,hash:'SHA-256'},km,{name:'AES-GCM',length:256},false,['decrypt']);
+  return new TextDecoder().decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:b(blob.iv)},k,b(blob.ct)));
+}
+const load=src=>new Promise(r=>{const s=document.createElement('script');if(src.text!==undefined)s.text=src.text;else{s.src=src.src;s.onload=r}document.body.appendChild(s);if(src.text!==undefined)r()});
+async function start(text){
+  $('#gate').remove();
+  await load({src:'icons.js'});await load({src:'charts.js'});
+  await load({text});await load({src:'app.js'});
+}
+let saved=null;try{saved=localStorage.getItem(KEY)}catch(e){}
+if(saved){try{return await start(await open(saved))}catch(e){try{localStorage.removeItem(KEY)}catch(_){}}}
+$('#gf').onsubmit=async e=>{e.preventDefault();const pw=$('#gp').value.trim().toLowerCase();$('#gb').textContent='Unlocking…';$('#ge').textContent='';
+  try{const t=await open(pw);if($('#gr').checked){try{localStorage.setItem(KEY,pw)}catch(_){}}await start(t)}catch(err){$('#gb').textContent='Unlock';$('#ge').textContent='That key is not right.'}};
+$('#gp').focus();
+})();
+</script>
+</body>
+</html>
